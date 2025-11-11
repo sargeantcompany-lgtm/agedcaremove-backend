@@ -1,83 +1,62 @@
 package com.sargeantco.agedcaremove_backend.enquiry;
 
-import org.springframework.http.HttpStatus;
+import com.sargeantco.agedcaremove_backend.service.EmailService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import java.util.List;
 
-import com.sargeantco.agedcaremove_backend.service.EmailService;
+import java.time.OffsetDateTime;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/enquiries")
-@CrossOrigin(origins = {
-        "http://localhost:5173",
-        "https://sargeantandco.com",
-        "https://www.sargeantandco.com"
-})
-
 public class EnquiryController {
 
-    private final EnquiryRepository enquiryRepository;
     private final EmailService emailService;
 
-    public EnquiryController(EnquiryRepository enquiryRepository, EmailService emailService) {
-        this.enquiryRepository = enquiryRepository;
+    public EnquiryController(EmailService emailService) {
         this.emailService = emailService;
     }
 
-    // === FRONTEND USES THIS ONE ===
-    @PostMapping
-    public ResponseEntity<Enquiry> createEnquiry(@RequestBody Enquiry enquiry) {
-        Enquiry saved = enquiryRepository.save(enquiry);
+    // Minimal request DTO (matches your frontend fields)
+    public record EnquiryRequest(
+            String fullName,
+            String phone,
+            String email,
+            String suburb,
+            String timeline,
+            String notes,
+            String source
+    ) {}
 
-        // === SEND EMAILS ===
-        try {
-            String teamBody = """
-                NEW ENQUIRY RECEIVED
-                --------------------
+    @PostMapping
+    public ResponseEntity<?> create(@RequestBody EnquiryRequest req) {
+        String subject = "New website enquiry: " + (req.fullName() == null ? "(no name)" : req.fullName());
+        String body = """
+                New enquiry received %s
+
                 Name: %s
                 Phone: %s
                 Email: %s
-                Care For: %s
-                Stage: %s
+                Suburb: %s
                 Timeline: %s
+                Source: %s
 
                 Notes:
                 %s
                 """.formatted(
-                    orDash(saved.getFullName()),
-                    orDash(saved.getPhone()),
-                    orDash(saved.getEmail()),
-                    orDash(saved.getCareFor()),
-                    orDash(saved.getStage()),
-                    orDash(saved.getTimeline()),
-                    orDash(saved.getNotes())
-            );
+                OffsetDateTime.now(),
+                req.fullName(), req.phone(), req.email(),
+                req.suburb(), req.timeline(), req.source(),
+                req.notes()
+        );
 
-            emailService.sendNewEnquiryToTeam(
-                    "New enquiry — " + orDash(saved.getFullName()), teamBody
-            );
-
-            emailService.sendCopyToEnquirer(
-                    saved.getEmail(),
-                    "Hi " + orDash(saved.getFullName()) +
-                            ",\n\nThanks for reaching out. We received your enquiry and will call you shortly.\n\n— Aslam, Sargeant & Co — Aged-Care Move"
-            );
-        } catch (Exception e) {
-            System.err.println("⚠️ Email sending failed: " + e.getMessage());
-        }
-        // === END EMAILS ===
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+        emailService.sendNewEnquiryToTeam(subject, body);
+        return ResponseEntity.ok(Map.of("status", "sent"));
     }
 
-    // === ADMIN USES THIS ONE ===
-    @GetMapping
-    public ResponseEntity<List<Enquiry>> getAllEnquiries() {
-        return ResponseEntity.ok(enquiryRepository.findAll());
-    }
-
-    private static String orDash(String s) {
-        return (s == null || s.isBlank()) ? "—" : s;
+    // Fingerprint so we can confirm the right build is running in Render
+    @GetMapping("/_whoami")
+    public Map<String, String> whoami() {
+        return Map.of("build", "email-only-2025-11-11");
     }
 }
